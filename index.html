@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f7f8f5">
+  <title>Harbor &amp; Hearth — Restaurant Management</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <a class="brand" href="#" aria-label="Harbor and Hearth home">
+        <span class="brand-mark">H<span>&amp;</span>H</span>
+        <span class="brand-copy"><strong>Harbor &amp; Hearth</strong><small>RESTAURANT OS</small></span>
+      </a>
+      <div class="side-label">WORKSPACE</div>
+      <nav class="main-nav" aria-label="Main navigation">
+        <button class="nav-link active" data-page="dashboard"><span class="nav-icon">◫</span>Dashboard</button>
+        <button class="nav-link" data-page="orders"><span class="nav-icon">▤</span>Orders <span class="nav-count" id="order-count"></span></button>
+        <button class="nav-link" data-page="kitchen"><span class="nav-icon">♨</span>Kitchen</button>
+        <button class="nav-link" data-page="menu"><span class="nav-icon">◉</span>Food menu</button>
+        <button class="nav-link" data-page="tables"><span class="nav-icon">▦</span>Tables</button>
+        <button class="nav-link" data-page="billing"><span class="nav-icon">▧</span>Billing</button>
+      </nav>
+      <div class="side-label management-label">MANAGEMENT</div>
+      <nav class="main-nav" aria-label="Management navigation">
+        <button class="nav-link" data-page="inventory"><span class="nav-icon">▥</span>Inventory</button>
+        <button class="nav-link" data-page="deliveries"><span class="nav-icon">➜</span>Deliveries</button>
+        <button class="nav-link" data-page="staff"><span class="nav-icon">♙</span>Staff</button>
+        <button class="nav-link" data-page="reports"><span class="nav-icon">▥</span>Reports</button>
+      </nav>
+      <div class="sidebar-bottom">
+        <button class="btn btn-secondary sidebar-password-button" data-action="change-password">Change password</button>
+        <div class="open-status"><span class="live-dot"></span><span><strong>Restaurant open</strong><small>Service is running</small></span><span class="status-chevron">⌄</span></div>
+        <div class="profile">
+          <div class="avatar" id="profile-avatar">JM</div>
+          <div class="profile-copy"><strong id="profile-name">Staff</strong><small id="profile-role">Staff member</small></div>
+          <button class="more-button" data-action="logout" aria-label="Sign out">↪</button>
+        </div>
+      </div>
+    </aside>
+
+    <main class="main-area">
+      <header class="topbar">
+        <button class="mobile-menu" id="mobile-menu" aria-label="Toggle navigation" aria-controls="sidebar" aria-expanded="false">☰</button>
+        <div class="breadcrumb"><span>Workspace</span><b>/</b><strong id="current-section">Dashboard</strong></div>
+        <div class="topbar-actions">
+          <div class="today-chip"><span>◷</span><span id="today-label"></span></div>
+          <label class="language-picker"><span class="sr-only">Language</span><select id="language-select" aria-label="Language"><option value="en">English</option><option value="fr">Français</option><option value="sw">Kiswahili</option></select></label>
+          <button class="btn btn-secondary change-password-button" data-action="change-password">Change password</button>
+          <button class="icon-button notification-button" aria-label="Notifications">♧<i></i></button>
+          <div class="top-avatar" id="top-avatar">JM</div>
+        </div>
+      </header>
+      <div class="page-wrap" id="page-content"></div>
+    </main>
+  </div>
+  <div class="toast-region" id="toast-region" aria-live="polite"></div>
+  <div class="modal-backdrop" id="modal-backdrop" hidden>
+    <section class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <header class="modal-header"><div><p class="eyebrow" id="modal-eyebrow">WORKSPACE</p><h2 id="modal-title"></h2></div><button class="modal-close" data-close-modal aria-label="Close dialog">×</button></header>
+      <div class="modal-content" id="modal-content"></div>
+    </section>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>

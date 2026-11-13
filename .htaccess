@@ -1,0 +1,5 @@
+Options -Indexes
+
+<FilesMatch "^(config\.php|database\.sql|create_admin\.php|reset_user_password\.php)$">
+    Require all denied
+</FilesMatch>
