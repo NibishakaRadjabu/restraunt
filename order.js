@@ -9,18 +9,14 @@
   let foods = [];
   let cart = readCart();
   let customer = null;
-  let rwfPerUsd = 1470;
   let csrfToken = "";
   let favorites = new Set();
   let orders = [];
   let selectedCategory = "All";
   let accountMode = "login";
   let toastTimer;
-  let paymentId = "";
-  let paymentAttemptKey = "";
-  let paymentPending = false;
-  let paymentCheckRunning = false;
-  let paymentTimer;
+  let orderSubmissionKey = sessionStorage.getItem("harbor-hearth-order-key") || "";
+  let orderSubmitting = false;
   let currentLanguage = localStorage.getItem("harbor-hearth-language") || "en";
 
   const translations = {
@@ -46,17 +42,15 @@
       your_basket: "Your basket",
       basket_waiting: "Your basket is waiting for something delicious.",
       total: "Total",
-      payment_note: "Pay with MTN Mobile Money before your order is sent to our kitchen.",
+      payment_note: "Place your order now. Pay cash or Mobile Money when it arrives.",
       delivery_address: "Delivery address",
       delivery_address_placeholder: "Street, neighborhood, city",
       delivery_notes: "Delivery notes",
       optional: "(optional)",
       delivery_notes_placeholder: "Gate code, landmarks, or delivery instructions",
-      mtn_mobile_money_number: "MTN Mobile Money number",
-      mtn_phone_placeholder: "+250 7xx xxx xxx",
-      pay_place_order: "Pay & place order",
-      checkout_hint: "Sign in or create an account to checkout.",
-      check_payment_status: "Check payment status",
+      pay_place_order: "Place order",
+      checkout_hint: "Sign in or create an account to place an order.",
+      payment_collect_note: "Payment is collected by restaurant staff on delivery.",
       your_table_wherever_you_are: "YOUR TABLE, WHEREVER YOU ARE",
       order_history_tracking: "Order history & tracking",
       sign_in_follow_order: "Sign in to follow your order from our kitchen to your door.",
@@ -81,20 +75,20 @@
       remove_one: "Remove one",
       add_one: "Add one",
       ordering_as: "Ordering as",
-      pay_before_kitchen: "Pay before kitchen preparation",
+      pay_before_kitchen: "Pay cash or Mobile Money to restaurant staff on delivery.",
       sign_in_to_save_favorites: "Sign in to save your favorites.",
       sign_in_to_checkout: "Sign in or create an account before checkout.",
       order_number: "Order #",
       delivered_to: "Deliver to:",
-      payment_method: "Paid by",
+      payment_method: "Payment",
+      pay_on_delivery: "Pay on delivery",
       order_again: "Order again",
       please_sign_in_again: "Please sign in again to view your orders.",
       your_account_ready: "Your account is ready.",
       welcome_back: "Welcome back.",
-      payment_confirmed: "Payment confirmed.",
       sent_to_kitchen: "has been sent to our kitchen.",
       sign_out: "You have signed out.",
-      finish_pending_payment: "Finish checking the pending Mobile Money payment before signing out.",
+      order_placed: "Your order has been placed.",
       available_items_added: "Available items from your order were added to your basket.",
       favorite_updated: "Favorite updated.",
       create_your_account: "Create your account",
@@ -102,16 +96,6 @@
       welcome_back_message: "Sign in to checkout and follow your delivery.",
       create_account: "Create account",
       already_have_account: "Already have an account? Sign in",
-      payment_request_sent: "A payment request for",
-      approve_to_place_order: "is being sent to your phone. Approve it to place your order.",
-      checking_pending_payment: "Checking your pending MTN Mobile Money payment…",
-      pending_mobile_money: "MTN reported a payment that needs a restaurant check. Do not pay again; contact the restaurant with your payment reference.",
-      payment_approved: "Payment request sent to",
-      approval_phone: "Approve it on your phone, then check again. Amount:",
-      billing_info: "MTN charge:",
-      usd_to_rwf: "1 USD =",
-      percent: "",
-      mtn_total: "Mobile Money total:",
       received: "Received",
       preparing: "Preparing",
       ready_for_pickup: "Ready for pickup",
@@ -154,17 +138,15 @@
       your_basket: "Votre panier",
       basket_waiting: "Votre panier attend un plat délicieux.",
       total: "Total",
-      payment_note: "Payez par MTN Mobile Money avant que votre commande soit envoyée à la cuisine.",
+      payment_note: "Passez votre commande maintenant. Payez en espèces ou par Mobile Money à la livraison.",
       delivery_address: "Adresse de livraison",
       delivery_address_placeholder: "Rue, quartier, ville",
       delivery_notes: "Instructions de livraison",
       optional: "(facultatif)",
       delivery_notes_placeholder: "Code porte, repères ou consignes",
-      mtn_mobile_money_number: "Numéro MTN Mobile Money",
-      mtn_phone_placeholder: "+250 7xx xxx xxx",
-      pay_place_order: "Payer et commander",
-      checkout_hint: "Connectez-vous ou créez un compte pour payer.",
-      check_payment_status: "Vérifier le paiement",
+      pay_place_order: "Commander",
+      checkout_hint: "Connectez-vous ou créez un compte pour commander.",
+      payment_collect_note: "Le paiement est encaissé par le personnel du restaurant à la livraison.",
       your_table_wherever_you_are: "VOTRE TABLE, OÙ QUE VOUS SOYEZ",
       order_history_tracking: "Historique et suivi des commandes",
       sign_in_follow_order: "Connectez-vous pour suivre votre commande de la cuisine jusqu’à votre porte.",
@@ -174,7 +156,7 @@
       back_to_menu: "Retour au menu ↑",
       welcome_harbor_hearth: "BIENVENUE CHEZ HARBOR & HEARTH",
       your_account: "Votre compte",
-      sign_in_checkout_delivery: "Connectez-vous pour payer et suivre votre livraison.",
+      sign_in_checkout_delivery: "Connectez-vous pour commander et suivre votre livraison.",
       your_name: "Votre nom",
       phone_number: "Numéro de téléphone",
       phone_number_placeholder: "+250 7xx xxx xxx",
@@ -189,35 +171,26 @@
       remove_one: "Retirer un",
       add_one: "Ajouter un",
       ordering_as: "Commander en tant que",
-      pay_before_kitchen: "Payer avant la préparation en cuisine",
+      pay_before_kitchen: "Payez en espèces ou par Mobile Money au personnel à la livraison.",
       sign_in_to_save_favorites: "Connectez-vous pour enregistrer vos favoris.",
-      sign_in_to_checkout: "Connectez-vous ou créez un compte avant le paiement.",
+      sign_in_to_checkout: "Connectez-vous ou créez un compte avant de commander.",
       order_number: "Commande #",
       delivered_to: "Livrer à :",
-      payment_method: "Payé par",
+      payment_method: "Paiement",
+      pay_on_delivery: "Paiement à la livraison",
       order_again: "Commander à nouveau",
       please_sign_in_again: "Veuillez vous reconnecter pour voir vos commandes.",
       your_account_ready: "Votre compte est prêt.",
       welcome_back: "Bon retour.",
-      payment_confirmed: "Paiement confirmé.",
       sent_to_kitchen: "a été envoyée à notre cuisine.",
       sign_out: "Vous êtes déconnecté.",
-      finish_pending_payment: "Terminez la vérification du paiement Mobile Money avant de vous déconnecter.",
+      order_placed: "Votre commande a été passée.",
       available_items_added: "Les articles de votre commande ont été ajoutés au panier.",
       create_your_account: "Créez votre compte",
       one_account: "Un compte rassemble vos commandes et vos favoris.",
-      welcome_back_message: "Connectez-vous pour payer et suivre votre livraison.",
+      welcome_back_message: "Connectez-vous pour commander et suivre votre livraison.",
       create_account: "Créer un compte",
       already_have_account: "Vous avez déjà un compte ? Se connecter",
-      payment_request_sent: "Une demande de paiement pour",
-      approve_to_place_order: "est envoyée sur votre téléphone. Acceptez-la pour passer votre commande.",
-      checking_pending_payment: "Vérification du paiement MTN Mobile Money en attente…",
-      pending_mobile_money: "MTN a signalé un paiement nécessitant vérification. Ne payez pas à nouveau ; contactez le restaurant avec votre référence de paiement.",
-      payment_approved: "Demande de paiement envoyée à",
-      approval_phone: "Acceptez-la sur votre téléphone, puis vérifiez à nouveau. Montant :",
-      billing_info: "Frais MTN :",
-      usd_to_rwf: "1 USD =",
-      mtn_total: "Total Mobile Money :",
       received: "Reçu",
       preparing: "En préparation",
       ready_for_pickup: "Prêt à récupérer",
@@ -248,17 +221,15 @@
       your_basket: "Kikapu chako",
       basket_waiting: "Kikapu chako kimeka tayari kwa kitu kitamu.",
       total: "Jumla",
-      payment_note: "Lipa kwa MTN Mobile Money kabla ya agizo lako kutumwa jikoni.",
+      payment_note: "Weka agizo lako sasa. Lipa taslimu au kwa Mobile Money linapowasili.",
       delivery_address: "Anwani ya uwasilishaji",
       delivery_address_placeholder: "Mtaa, eneo, jiji",
       delivery_notes: "Maelezo ya uwasilishaji",
       optional: "(si lazima)",
       delivery_notes_placeholder: "Msimbo wa geti, alama, au maelezo ya usafirishaji",
-      mtn_mobile_money_number: "Namba ya MTN Mobile Money",
-      mtn_phone_placeholder: "+250 7xx xxx xxx",
-      pay_place_order: "Lipa na uweke agizo",
-      checkout_hint: "Ingia au unda akaunti ili kulipa.",
-      check_payment_status: "Kagua hali ya malipo",
+      pay_place_order: "Weka agizo",
+      checkout_hint: "Ingia au unda akaunti ili kuweka agizo.",
+      payment_collect_note: "Malipo yatapokelewa na wafanyakazi wa mgahawa wakati wa usafirishaji.",
       your_table_wherever_you_are: "MEZA YAKO, UKO WAPI WOWOTE",
       order_history_tracking: "Historia ya maagizo na ufuatiliaji",
       sign_in_follow_order: "Ingia ili kufuatilia agizo lako kutoka jikoni hadi mlangoni mwako.",
@@ -268,7 +239,7 @@
       back_to_menu: "Rudi kwenye menyu ↑",
       welcome_harbor_hearth: "KARIBUNI HARBOR & HEARTH",
       your_account: "Akaunti yako",
-      sign_in_checkout_delivery: "Ingia ili kulipa na kufuatilia usafirishaji wako.",
+      sign_in_checkout_delivery: "Ingia ili kuagiza na kufuatilia usafirishaji wako.",
       your_name: "Jina lako",
       phone_number: "Namba ya simu",
       phone_number_placeholder: "+250 7xx xxx xxx",
@@ -283,20 +254,20 @@
       remove_one: "Ondoa moja",
       add_one: "Ongeza moja",
       ordering_as: "Unaagiza kama",
-      pay_before_kitchen: "Lipa kabla ya kupikwa",
+      pay_before_kitchen: "Lipa taslimu au kwa Mobile Money kwa mfanyakazi wa mgahawa ukiletewa.",
       sign_in_to_save_favorites: "Ingia ili kuhifadhi vipendwa vyako.",
-      sign_in_to_checkout: "Ingia au unda akaunti kabla ya kulipa.",
+      sign_in_to_checkout: "Ingia au unda akaunti kabla ya kuagiza.",
       order_number: "Agizo #",
       delivered_to: "Isafirishwe kwa:",
-      payment_method: "Lilipwa na",
+      payment_method: "Malipo",
+      pay_on_delivery: "Lipa ukiletewa",
       order_again: "Agiza tena",
       please_sign_in_again: "Tafadhali ingia tena kuona maagizo yako.",
       your_account_ready: "Akaunti yako iko tayari.",
       welcome_back: "Karibu tena.",
-      payment_confirmed: "Malipo yamehakikishwa.",
       sent_to_kitchen: "imetumwa kwenye jikoni letu.",
       sign_out: "Umeondoka kwenye mfumo.",
-      finish_pending_payment: "Maliza kukagua malipo ya MTN Mobile Money kabla ya kuondoka.",
+      order_placed: "Agizo lako limetumwa.",
       available_items_added: "Vipengee kutoka agizo lako vimeongeza kwenye kikapu chako.",
       create_your_account: "Unda akaunti yako",
       one_account: "Akaunti moja hukusanya maagizo na vipendwa vyako."
@@ -340,10 +311,6 @@
 
   function money(value) {
     return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(Number(value) || 0);
-  }
-
-  function moneyRwf(value) {
-    return `RWF ${Math.round(Number(value) || 0).toLocaleString("en-RW")}`;
   }
 
   function newUuid() {
@@ -457,11 +424,10 @@
     const total = entries.reduce((sum, entry) => sum + entry.quantity * entry.food.price, 0);
     document.getElementById("cart-count").textContent = String(count);
     document.getElementById("cart-total").textContent = money(total);
-    document.getElementById("payment-estimate").textContent = `${t("billing_info", "MTN charge:")} ${moneyRwf(total * rwfPerUsd)} · ${t("usd_to_rwf", "1 USD =")} ${moneyRwf(rwfPerUsd)}`;
     document.getElementById("checkout-hint").textContent = customer
-      ? `${t("ordering_as", "Ordering as")} ${customer.name} · ${t("pay_before_kitchen", "Pay before kitchen preparation")}`
+      ? `${t("ordering_as", "Ordering as")} ${customer.name} (${customer.phone}) · ${t("pay_before_kitchen", "Pay cash or Mobile Money to restaurant staff on delivery.")}`
       : t("checkout_hint", "Sign in or create an account to checkout.");
-    document.getElementById("checkout-form").querySelector('[type="submit"]').disabled = count === 0 || paymentPending;
+    document.getElementById("checkout-form").querySelector('[type="submit"]').disabled = count === 0 || orderSubmitting;
     cartRoot.innerHTML = entries.length ? entries.map(({ food, quantity }) => `
       <div class="cart-line">
         <div class="cart-line-copy"><strong>${escapeHtml(food.name)}</strong><small>${money(food.price * quantity)}</small></div>
@@ -489,7 +455,7 @@
         <p class="order-address"><strong>${t("delivered_to", "Deliver to:")}</strong> ${escapeHtml(order.address)}</p>
         <div class="order-items">${items}</div>
         <div class="tracking-steps" aria-label="Order progress">${steps.map((step, index) => `<span class="tracking-step ${index < currentStep ? "done" : ""} ${index === currentStep ? "current" : ""}">${step}</span>`).join("")}</div>
-        <div class="order-card-foot"><span>${t("payment_method", "Paid by")} ${escapeHtml(order.paymentMethod || "MTN Mobile Money")}${order.amountRwf ? ` · ${moneyRwf(order.amountRwf)}` : ""}</span><strong>${money(order.total)}</strong><button class="reorder-button" data-action="reorder" data-id="${order.id}">${t("order_again", "Order again")}</button></div>
+        <div class="order-card-foot"><span>${t("payment_method", "Payment")}: ${escapeHtml(order.paymentMethod || t("pay_on_delivery", "Pay on delivery"))}</span><strong>${money(order.total)}</strong><button class="reorder-button" data-action="reorder" data-id="${order.id}">${t("order_again", "Order again")}</button></div>
       </article>`;
     }).join("");
   }
@@ -497,8 +463,6 @@
   function setAccount(customerData) {
     customer = customerData;
     document.getElementById("account-button").textContent = customer ? customer.name : t("sign_in", "Sign in");
-    const phoneField = document.getElementById("checkout-form").elements.paymentPhone;
-    if (customer && !phoneField.value) phoneField.value = customer.phone;
     renderCart();
     renderOrders();
   }
@@ -573,71 +537,6 @@
     }
   }
 
-  function showPaymentProgress(message, visible = true) {
-    const progress = document.getElementById("payment-progress");
-    progress.hidden = !visible;
-    document.getElementById("payment-progress-message").textContent = message;
-  }
-
-  function lockPaymentCheckout(locked) {
-    paymentPending = locked;
-    document.getElementById("checkout-form").querySelectorAll("textarea, input, button[type='submit']").forEach((control) => {
-      control.disabled = locked;
-    });
-    document.getElementById("cart-panel").querySelectorAll(".quantity-control button, .add-cart").forEach((control) => {
-      control.disabled = locked;
-    });
-    renderCart();
-  }
-
-  async function completePayment(result) {
-    paymentPending = false;
-    paymentId = "";
-    paymentAttemptKey = "";
-    window.clearTimeout(paymentTimer);
-    sessionStorage.removeItem("harbor-hearth-pending-payment");
-    cart = {};
-    saveCart();
-    document.getElementById("checkout-form").reset();
-    lockPaymentCheckout(false);
-    showPaymentProgress("", false);
-    showToast(`${t("payment_confirmed", "Payment confirmed.")} ${t("order_number", "Order #")}${result.orderId} ${t("sent_to_kitchen", "has been sent to our kitchen.")}`);
-    await loadOrders();
-    location.hash = "orders";
-  }
-
-  async function checkPaymentStatus() {
-    if (!paymentId || paymentCheckRunning) return;
-    paymentCheckRunning = true;
-    const checkButton = document.getElementById("payment-check-button");
-    checkButton.disabled = true;
-    try {
-      const result = await api("check_payment", { paymentId });
-      const payment = result.payment;
-      if (payment.status === "SUCCESSFUL") {
-        await completePayment(result);
-      } else if (payment.status === "FAILED") {
-        paymentId = "";
-        paymentAttemptKey = "";
-        sessionStorage.removeItem("harbor-hearth-pending-payment");
-        lockPaymentCheckout(false);
-        showPaymentProgress("MTN did not complete the payment. Check the mobile number and try checkout again.");
-      } else if (payment.status === "REVIEW" || result.reviewRequired) {
-        lockPaymentCheckout(true);
-        showPaymentProgress(t("pending_mobile_money", "MTN reported a payment that needs a restaurant check. Do not pay again; contact the restaurant with your payment reference."));
-      } else {
-        lockPaymentCheckout(true);
-        showPaymentProgress(`${t("payment_approved", "Payment request sent to")} ${document.getElementById("checkout-form").elements.paymentPhone.value}. ${t("approval_phone", "Approve it on your phone, then check again. Amount:")} ${moneyRwf(payment.amountRwf)}.`);
-        paymentTimer = window.setTimeout(() => { void checkPaymentStatus(); }, 10000);
-      }
-    } catch (error) {
-      showPaymentProgress(error.message);
-    } finally {
-      paymentCheckRunning = false;
-      checkButton.disabled = false;
-    }
-  }
-
   async function placeOrder(form) {
     if (!customer) {
       openAccount("login");
@@ -647,26 +546,34 @@
     const entries = cartEntries();
     if (!entries.length) return;
     const button = form.querySelector('[type="submit"]');
-    button.disabled = true;
-    paymentAttemptKey ||= newUuid();
+    orderSubmitting = true;
+    renderCart();
+    orderSubmissionKey ||= newUuid();
+    sessionStorage.setItem("harbor-hearth-order-key", orderSubmissionKey);
     try {
-      const result = await api("start_payment", {
+      const result = await api("place_order", {
         address: form.elements.address.value.trim(),
         notes: form.elements.notes.value.trim(),
-        phone: form.elements.paymentPhone.value.trim(),
-        idempotencyKey: paymentAttemptKey,
+        idempotencyKey: orderSubmissionKey,
         items: entries.map(({ food, quantity }) => ({ foodId: food.id, quantity }))
       });
-      paymentId = result.payment.paymentId;
-      sessionStorage.setItem("harbor-hearth-pending-payment", paymentId);
-      lockPaymentCheckout(true);
-      showPaymentProgress(`${t("payment_request_sent", "A payment request for")} ${moneyRwf(result.payment.amountRwf)} ${t("approve_to_place_order", "is being sent to your phone. Approve it to place your order.")}`);
-      await checkPaymentStatus();
+      orderSubmissionKey = "";
+      sessionStorage.removeItem("harbor-hearth-order-key");
+      cart = {};
+      saveCart();
+      form.reset();
+      showToast(`${t("order_placed", "Your order has been placed.")} ${t("order_number", "Order #")}${result.orderId} ${t("sent_to_kitchen", "has been sent to our kitchen.")}`);
+      await loadOrders();
+      location.hash = "orders";
     } catch (error) {
       showToast(error.message);
-      if (error.status && error.status < 500) paymentAttemptKey = "";
+      if (error.status && error.status < 500) {
+        orderSubmissionKey = "";
+        sessionStorage.removeItem("harbor-hearth-order-key");
+      }
     } finally {
-      if (!paymentPending) button.disabled = cartEntries().length === 0;
+      orderSubmitting = false;
+      button.disabled = cartEntries().length === 0;
     }
   }
 
@@ -682,11 +589,11 @@
     if (!button) return;
     const id = Number(button.dataset.id);
     if (button.dataset.action === "add" || button.dataset.action === "increase") {
-      if (paymentPending) return;
+      if (orderSubmitting) return;
       cart[id] = Math.min(99, (Number(cart[id]) || 0) + 1);
       saveCart();
     } else if (button.dataset.action === "decrease") {
-      if (paymentPending) return;
+      if (orderSubmitting) return;
       cart[id] = Math.max(0, (Number(cart[id]) || 0) - 1);
       if (!cart[id]) delete cart[id];
       saveCart();
@@ -723,10 +630,6 @@
       openAccount("login");
       return;
     }
-    if (paymentPending) {
-      showToast("Finish checking the pending Mobile Money payment before signing out.");
-      return;
-    }
     try {
       await api("logout");
       setAccount(null);
@@ -757,12 +660,12 @@
     event.preventDefault();
     void submitAccount(event.currentTarget);
   });
+  sessionStorage.removeItem("harbor-hearth-pending-payment");
   document.getElementById("checkout-form").addEventListener("submit", (event) => {
     event.preventDefault();
     void placeOrder(event.currentTarget);
   });
   document.getElementById("orders-refresh").addEventListener("click", () => { void loadOrders(); });
-  document.getElementById("payment-check-button").addEventListener("click", () => { void checkPaymentStatus(); });
 
   async function initialize() {
     const languageSelect = document.getElementById("language-select");
@@ -771,7 +674,6 @@
     try {
       const menu = await api("menu", {}, "GET");
       foods = menu.foods;
-      rwfPerUsd = Number(menu.payment?.rwfPerUsd) || 1470;
       csrfToken = menu.csrfToken;
       cart = Object.fromEntries(Object.entries(cart).filter(([id, quantity]) => foods.some((food) => food.id === Number(id)) && Number(quantity) > 0));
       saveCart();
@@ -782,13 +684,6 @@
       setAccount(session.customer);
       if (customer) {
         await Promise.all([loadOrders(), loadFavorites()]);
-        const savedPaymentId = sessionStorage.getItem("harbor-hearth-pending-payment");
-        if (savedPaymentId) {
-          paymentId = savedPaymentId;
-          lockPaymentCheckout(true);
-          showPaymentProgress(t("checking_pending_payment", "Checking your pending MTN Mobile Money payment…"));
-          void checkPaymentStatus();
-        }
       }
     } catch (error) {
       console.error("Could not start the customer ordering page.", error);

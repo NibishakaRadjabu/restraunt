@@ -41,19 +41,14 @@
           <div class="cart-heading"><div><span class="eyebrow" data-i18n="your_order">YOUR ORDER</span><h2 data-i18n="your_basket">Your basket</h2></div><span class="cart-count" id="cart-count">0</span></div>
           <div id="cart-items" class="cart-items"><p class="cart-empty" data-i18n="basket_waiting">Your basket is waiting for something delicious.</p></div>
           <div class="cart-total"><span data-i18n="total">Total</span><strong id="cart-total">$0.00</strong></div>
-          <p class="payment-note" data-i18n="payment_note">Pay with MTN Mobile Money before your order is sent to our kitchen.</p>
-          <p class="payment-estimate" id="payment-estimate">Mobile Money total: RWF 0</p>
+          <p class="payment-note" data-i18n="payment_note">Place your order now. Pay cash or Mobile Money when it arrives.</p>
+          <p class="payment-collect-note" data-i18n="payment_collect_note">Payment is collected by restaurant staff on delivery.</p>
           <form id="checkout-form">
             <label><span data-i18n="delivery_address">Delivery address</span><textarea name="address" maxlength="500" required data-i18n-placeholder="delivery_address_placeholder" placeholder="Street, neighborhood, city"></textarea></label>
             <label><span data-i18n="delivery_notes">Delivery notes</span> <span class="optional" data-i18n="optional">(optional)</span><textarea name="notes" maxlength="1000" data-i18n-placeholder="delivery_notes_placeholder" placeholder="Gate code, landmarks, or delivery instructions"></textarea></label>
-            <label><span data-i18n="mtn_mobile_money_number">MTN Mobile Money number</span><input name="paymentPhone" type="tel" autocomplete="tel" required maxlength="32" data-i18n-placeholder="mtn_phone_placeholder" placeholder="+250 7xx xxx xxx"></label>
-            <button class="btn btn-primary checkout-button" type="submit" data-i18n="pay_place_order">Pay &amp; place order</button>
-            <p class="checkout-hint" id="checkout-hint" data-i18n="checkout_hint">Sign in or create an account to checkout.</p>
+            <button class="btn btn-primary checkout-button" type="submit" data-i18n="pay_place_order">Place order</button>
+            <p class="checkout-hint" id="checkout-hint" data-i18n="checkout_hint">Sign in or create an account to place an order.</p>
           </form>
-          <div class="payment-progress" id="payment-progress" role="status" aria-live="polite" hidden>
-            <p id="payment-progress-message"></p>
-            <button class="btn btn-outline" id="payment-check-button" type="button" data-i18n="check_payment_status">Check payment status</button>
-          </div>
         </aside>
       </div>
     </section>

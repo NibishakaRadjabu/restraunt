@@ -13,26 +13,19 @@
 3. If your MySQL credentials differ, set `RESTAURANT_DB_HOST`, `RESTAURANT_DB_PORT`, `RESTAURANT_DB_NAME`, `RESTAURANT_DB_USER`, and `RESTAURANT_DB_PASSWORD` in Apache's environment. The local defaults are `127.0.0.1:3306`, database `harbor_hearth_restored_20261113` (the recovered local database), user `root`, and an empty password. For a fresh installation created from `database.sql`, set `RESTAURANT_DB_NAME=harbor_hearth_restaurant`.
 4. Open **http://localhost/restraunt/**. Do not open `index.html` directly as a file; PHP must serve `api.php`.
 
-The database contains starter menu items and eight available tables. Orders, payments, staff, inventory, and purchases are real MySQL records. The API uses prepared statements, calculates order totals from current menu prices, and commits order, payment, table, and stock changes transactionally. Staff-entered payment methods record a payment; customer Mobile Money checkout is processed separately by MTN before an order is created.
+The database contains starter menu items and eight available tables. Orders, payments, staff, inventory, and purchases are real MySQL records. The API uses prepared statements, calculates order totals from current menu prices, and commits order, payment, table, and stock changes transactionally. Staff-entered payment methods record cash, card, or manually verified Mobile Money payments.
 
-Customers can browse the live menu, filter Breakfast, Lunch, Dinner, Drinks, and Dessert, and add items to a basket at **http://localhost/restraunt/order.php**. At checkout, the page displays the USD basket total and its RWF equivalent, asks the customer to approve an MTN Mobile Money request on their phone, and creates the admin-visible order only after MTN confirms the matching amount and currency. Managers see confirmed MTN payments in **Billing & payments**. Unmatched successful provider responses are held for manager review instead of being sent to the kitchen.
+Customers can browse the live menu, filter Breakfast, Lunch, Dinner, Drinks, and Dessert, and add items to a basket at **http://localhost/restraunt/order.php**. Checkout places an unpaid delivery order, which appears in the kitchen and delivery queue. Payment is collected on delivery; staff record cash or manually verify Mobile Money and enter its phone number and reference in **Billing & payments**. Online payment-provider requests are disabled.
 
-### MTN Mobile Money setup
-
-The existing database needs the additive payment migration once:
+For an existing installation, apply the additive order idempotency migration before using customer checkout:
 
 ```powershell
-& C:\xampp\mysql\bin\mysql.exe -u root -e "source C:/xampp/htdocs/restraunt/mtn_momo_migration.sql"
+& C:\xampp\mysql\bin\mysql.exe -u root -D harbor_hearth_restored_20261113 -e "source C:/xampp/htdocs/restraunt/customer_order_idempotency.sql"
 ```
 
-Configure these values in Apache's server environment, never in JavaScript or source control:
+Existing MTN transaction records, if any, are left untouched; the application no longer calls MTN or reads those records.
 
-- `MTN_MOMO_MODE=production` (the configured default); use `sandbox` only for test credentials.
-- `MTN_MOMO_TARGET_ENVIRONMENT=mtnrwanda` for an MTN Rwanda merchant account; use the target environment issued for your account.
-- `MTN_MOMO_SUBSCRIPTION_KEY`, `MTN_MOMO_API_USER`, and `MTN_MOMO_API_KEY` from the MTN Collections product.
-- `MTN_MOMO_RWF_PER_USD=1470` sets the checkout conversion rate. Update it when your business exchange rate changes.
-
-Restart Apache after changing its environment. Production requests use MTN's production host; sandbox mode uses MTN's sandbox host. The server polls MTN's transaction status and does not treat an accepted request as paid. Verify your live account's target environment, currency support, and production onboarding with MTN before accepting real payments. The app remains restricted to the restaurant computer; this does not make it safe or accessible for public internet ordering.
+The app remains restricted to the restaurant computer; this does not make it safe or accessible for public internet ordering.
 
 Managers can add or edit menu photos from **Food menu → Add food item / Edit**. JPEG, PNG, GIF, and WebP images up to 5 MB are saved in `uploads/food-images` and shown on the customer menu.
 

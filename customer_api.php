@@ -1,7 +1,5 @@
 <?php
 declare(strict_types=1);
-require_once __DIR__ . '/mtn_momo.php';
-
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
 header('X-Content-Type-Options: nosniff');
@@ -185,11 +183,10 @@ function customerOrders(PDO $db, int $customerId): array
         'SELECT o.id, o.total_amount AS total, o.status AS kitchenStatus, o.order_date AS date,
                 DATE_FORMAT(o.created_at, "%l:%i %p") AS time, o.delivery_address AS address,
                 o.delivery_notes AS notes, d.status AS deliveryStatus,
-                p.payment_method AS paymentMethod, mt.amount_rwf AS amountRwf
+                p.payment_method AS paymentMethod
          FROM orders o
          JOIN deliveries d ON d.order_id = o.id
          LEFT JOIN payments p ON p.order_id = o.id
-         LEFT JOIN momo_payment_transactions mt ON mt.order_id = o.id
          WHERE o.customer_id = ? AND o.order_type = "Delivery"
          ORDER BY o.id DESC LIMIT 50'
     );
@@ -215,44 +212,16 @@ function customerOrders(PDO $db, int $customerId): array
     foreach ($orders as &$order) {
         $order['id'] = (int)$order['id'];
         $order['total'] = (float)$order['total'];
-        $order['amountRwf'] = $order['amountRwf'] === null ? null : (int)$order['amountRwf'];
         $order['items'] = $items[$order['id']] ?? [];
     }
     unset($order);
     return $orders;
 }
 
-function customerUuid(): string
-{
-    $bytes = random_bytes(16);
-    $bytes[6] = chr((ord($bytes[6]) & 0x0f) | 0x40);
-    $bytes[8] = chr((ord($bytes[8]) & 0x3f) | 0x80);
-    $hex = bin2hex($bytes);
-    return substr($hex, 0, 8) . '-' . substr($hex, 8, 4) . '-' . substr($hex, 12, 4) . '-' . substr($hex, 16, 4) . '-' . substr($hex, 20);
-}
-
-function customerMomoExternalId(string $paymentId): string
-{
-    return 'HH' . substr(str_replace('-', '', $paymentId), 0, 20);
-}
-
-function customerPaymentView(array $payment): array
-{
-    return [
-        'paymentId' => $payment['payment_id'],
-        'status' => $payment['status'],
-        'amountUsd' => (float)$payment['amount_usd'],
-        'amountRwf' => (int)$payment['amount_rwf'],
-        'currency' => $payment['currency'],
-        'orderId' => $payment['order_id'] === null ? null : (int)$payment['order_id'],
-    ];
-}
-
-function createCustomerPayment(PDO $db, array $input, array $customer, array $appConfig): void
+function placeCustomerOrder(PDO $db, array $input, array $customer): void
 {
     $address = trim((string)($input['address'] ?? ''));
     $notes = trim((string)($input['notes'] ?? ''));
-    $phone = normalizeCustomerPhone((string)($input['phone'] ?? ''));
     $items = $input['items'] ?? null;
     $idempotencyKey = strtolower(trim((string)($input['idempotencyKey'] ?? '')));
     if ($address === '' || mb_strlen($address) > 500) {
@@ -268,25 +237,13 @@ function createCustomerPayment(PDO $db, array $input, array $customer, array $ap
         throw new InvalidArgumentException('Refresh checkout and try again.');
     }
 
-    $settings = momoSettings($appConfig);
-    $existingQuery = $db->prepare('SELECT * FROM momo_payment_transactions WHERE customer_id = ? AND idempotency_key = ?');
-    $existingQuery->execute([$customer['id'], $idempotencyKey]);
-    $existing = $existingQuery->fetch();
-    if ($existing) {
-        if ($existing['status'] === 'FAILED' || $existing['status'] === 'REVIEW') {
-            throw new InvalidArgumentException('This payment attempt cannot be reused. Start checkout again.');
-        }
-        customerRespond(['payment' => customerPaymentView($existing)]);
-    }
-    $activeQuery = $db->prepare(
-        'SELECT * FROM momo_payment_transactions
-         WHERE customer_id = ? AND status IN ("INITIATING", "PENDING")
-         ORDER BY created_at DESC LIMIT 1'
+    $existingQuery = $db->prepare(
+        'SELECT id FROM orders WHERE customer_id = ? AND customer_idempotency_key = ?'
     );
-    $activeQuery->execute([$customer['id']]);
-    $activePayment = $activeQuery->fetch();
-    if ($activePayment) {
-        customerRespond(['payment' => customerPaymentView($activePayment)], 202);
+    $existingQuery->execute([$customer['id'], $idempotencyKey]);
+    $existingOrderId = $existingQuery->fetchColumn();
+    if ($existingOrderId !== false) {
+        customerRespond(['orderId' => (int)$existingOrderId]);
     }
 
     $db->beginTransaction();
@@ -320,31 +277,38 @@ function createCustomerPayment(PDO $db, array $input, array $customer, array $ap
             ];
         }
         $totalUsd = $totalCents / 100;
-        $amountRwf = (int)round($totalUsd * $settings['rwf_per_usd']);
-        if ($amountRwf < 1) {
-            throw new InvalidArgumentException('The payment total is too small for Mobile Money.');
-        }
-        $paymentId = customerUuid();
-        $referenceId = customerUuid();
-        $insert = $db->prepare(
-            'INSERT INTO momo_payment_transactions
-             (payment_id, reference_id, idempotency_key, customer_id, customer_phone, amount_usd,
-              amount_rwf, exchange_rate, currency, status, items_json, delivery_address, delivery_notes)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, "RWF", "INITIATING", ?, ?, ?)'
+        $insertOrder = $db->prepare(
+            'INSERT INTO orders
+             (customer_name, order_type, table_id, total_amount, status, order_date, customer_id,
+              customer_phone, delivery_address, delivery_notes, customer_idempotency_key)
+             VALUES (?, "Delivery", NULL, ?, "New", ?, ?, ?, ?, ?, ?)'
         );
-        $insert->execute([
-            $paymentId,
-            $referenceId,
-            $idempotencyKey,
-            $customer['id'],
-            $phone,
+        $insertOrder->execute([
+            $customer['name'],
             number_format($totalUsd, 2, '.', ''),
-            $amountRwf,
-            number_format($settings['rwf_per_usd'], 4, '.', ''),
-            json_encode($orderItems, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE),
+            date('Y-m-d'),
+            $customer['id'],
+            $customer['phone'],
             $address,
             $notes,
+            $idempotencyKey,
         ]);
+        $orderId = (int)$db->lastInsertId();
+        $insertItem = $db->prepare(
+            'INSERT INTO order_items (order_id, food_id, food_name, unit_price, quantity, subtotal)
+             VALUES (?, ?, ?, ?, ?, ?)'
+        );
+        foreach ($orderItems as $item) {
+            $insertItem->execute([
+                $orderId,
+                $item['foodId'],
+                $item['name'],
+                number_format($item['price'], 2, '.', ''),
+                $item['quantity'],
+                number_format($item['subtotal'], 2, '.', ''),
+            ]);
+        }
+        $db->prepare('INSERT INTO deliveries (order_id, status) VALUES (?, "Pending")')->execute([$orderId]);
         $db->commit();
     } catch (Throwable $error) {
         if ($db->inTransaction()) {
@@ -352,233 +316,19 @@ function createCustomerPayment(PDO $db, array $input, array $customer, array $ap
         }
         if ($error instanceof PDOException && (string)$error->getCode() === '23000') {
             $existingQuery->execute([$customer['id'], $idempotencyKey]);
-            $existing = $existingQuery->fetch();
-            if ($existing && !in_array($existing['status'], ['FAILED', 'REVIEW'], true)) {
-                customerRespond(['payment' => customerPaymentView($existing)], 202);
+            $existingOrderId = $existingQuery->fetchColumn();
+            if ($existingOrderId !== false) {
+                customerRespond(['orderId' => (int)$existingOrderId]);
             }
         }
         throw $error;
     }
 
-    try {
-        $token = momoAccessToken($settings);
-    } catch (Throwable $error) {
-        $db->prepare('UPDATE momo_payment_transactions SET status = "FAILED", provider_status = "AUTH_ERROR" WHERE payment_id = ?')
-            ->execute([$paymentId]);
-        error_log('MTN Mobile Money authentication failed before payment request.');
-        throw new RuntimeException('MTN Mobile Money is not ready. Check the server-side provider configuration.');
-    }
-
-    $externalId = customerMomoExternalId($paymentId);
-    try {
-        $response = momoRequest(
-            $settings,
-            'POST',
-            '/collection/v1_0/requesttopay',
-            [
-                'Authorization: Bearer ' . $token,
-                'X-Reference-Id: ' . $referenceId,
-                'X-Target-Environment: ' . $settings['target_environment'],
-                'Ocp-Apim-Subscription-Key: ' . $settings['subscription_key'],
-                'Content-Type: application/json',
-                'Accept: application/json',
-            ],
-            json_encode([
-                'amount' => (string)$amountRwf,
-                'currency' => 'RWF',
-                'externalId' => $externalId,
-                'payer' => ['partyIdType' => 'MSISDN', 'partyId' => ltrim($phone, '+')],
-                'payerMessage' => 'Harbor and Hearth food order',
-                'payeeNote' => 'Harbor and Hearth order',
-            ], JSON_THROW_ON_ERROR)
-        );
-        $providerStatus = $response['status'] === 202 ? 'PENDING' : 'UNKNOWN';
-        $db->prepare('UPDATE momo_payment_transactions SET status = "PENDING", provider_status = ? WHERE payment_id = ?')
-            ->execute([$providerStatus, $paymentId]);
-    } catch (MtnMomoException $error) {
-        if ($error->httpStatus >= 400 && $error->httpStatus < 500) {
-            $db->prepare('UPDATE momo_payment_transactions SET status = "FAILED", provider_status = "REJECTED" WHERE payment_id = ?')
-                ->execute([$paymentId]);
-            throw new InvalidArgumentException('MTN rejected the payment request. Check the mobile number and try checkout again.');
-        }
-        $db->prepare('UPDATE momo_payment_transactions SET status = "PENDING", provider_status = "UNKNOWN" WHERE payment_id = ?')
-            ->execute([$paymentId]);
-    } catch (Throwable $error) {
-        $db->prepare('UPDATE momo_payment_transactions SET status = "PENDING", provider_status = "UNKNOWN" WHERE payment_id = ?')
-            ->execute([$paymentId]);
-        error_log('MTN payment request response was uncertain; transaction status will be checked before retrying.');
-    }
-
-    $query = $db->prepare('SELECT * FROM momo_payment_transactions WHERE payment_id = ?');
-    $query->execute([$paymentId]);
-    customerRespond(['payment' => customerPaymentView($query->fetch())], 202);
-}
-
-function finishCustomerMomoOrder(PDO $db, string $paymentId, string $providerStatus, array $provider): ?int
-{
-    $db->beginTransaction();
-    try {
-        $query = $db->prepare(
-            'SELECT mt.*, c.name AS customer_name
-             FROM momo_payment_transactions mt
-             JOIN customers c ON c.id = mt.customer_id
-             WHERE mt.payment_id = ? FOR UPDATE'
-        );
-        $query->execute([$paymentId]);
-        $payment = $query->fetch();
-        if (!$payment) {
-            throw new InvalidArgumentException('Payment attempt not found.');
-        }
-        if ($payment['order_id'] !== null) {
-            $orderId = (int)$payment['order_id'];
-            $db->commit();
-            return $orderId;
-        }
-        if (in_array($payment['status'], ['FAILED', 'REVIEW'], true)) {
-            $db->commit();
-            return null;
-        }
-
-        $items = json_decode($payment['items_json'], true, 512, JSON_THROW_ON_ERROR);
-        if (!is_array($items) || $items === []) {
-            throw new RuntimeException('The stored paid order has no valid items.');
-        }
-        $insertOrder = $db->prepare(
-            'INSERT INTO orders
-             (customer_name, order_type, table_id, total_amount, status, order_date, customer_id, customer_phone, delivery_address, delivery_notes)
-             VALUES (?, "Delivery", NULL, ?, "New", ?, ?, ?, ?, ?)'
-        );
-        $insertOrder->execute([
-            $payment['customer_name'],
-            $payment['amount_usd'],
-            date('Y-m-d'),
-            $payment['customer_id'],
-            $payment['customer_phone'],
-            $payment['delivery_address'],
-            $payment['delivery_notes'],
-        ]);
-        $orderId = (int)$db->lastInsertId();
-        $insertItem = $db->prepare(
-            'INSERT INTO order_items (order_id, food_id, food_name, unit_price, quantity, subtotal)
-             VALUES (?, ?, ?, ?, ?, ?)'
-        );
-        foreach ($items as $item) {
-            $insertItem->execute([
-                $orderId,
-                $item['foodId'],
-                $item['name'],
-                $item['price'],
-                $item['quantity'],
-                $item['subtotal'],
-            ]);
-        }
-        $db->prepare('INSERT INTO deliveries (order_id, status) VALUES (?, "Pending")')->execute([$orderId]);
-        $db->prepare('INSERT INTO payments (order_id, amount, payment_method) VALUES (?, ?, "Mobile Money")')
-            ->execute([$orderId, $payment['amount_usd']]);
-        $update = $db->prepare(
-            'UPDATE momo_payment_transactions
-             SET order_id = ?, status = "SUCCESSFUL", provider_status = ?,
-                 provider_amount_rwf = ?, provider_currency = ?, provider_transaction_id = ?
-             WHERE payment_id = ?'
-        );
-        $update->execute([
-            $orderId,
-            $providerStatus,
-            (int)round((float)$provider['amount']),
-            strtoupper((string)$provider['currency']),
-            mb_substr((string)($provider['financialTransactionId'] ?? ''), 0, 120),
-            $paymentId,
-        ]);
-        $db->commit();
-        return $orderId;
-    } catch (Throwable $error) {
-        if ($db->inTransaction()) {
-            $db->rollBack();
-        }
-        throw $error;
-    }
-}
-
-function checkCustomerPayment(PDO $db, array $input, array $customer, array $appConfig): void
-{
-    $paymentId = strtolower(trim((string)($input['paymentId'] ?? '')));
-    if (!preg_match('/\A[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/', $paymentId)) {
-        throw new InvalidArgumentException('Choose a valid payment attempt.');
-    }
-    $query = $db->prepare('SELECT * FROM momo_payment_transactions WHERE payment_id = ? AND customer_id = ?');
-    $query->execute([$paymentId, $customer['id']]);
-    $payment = $query->fetch();
-    if (!$payment) {
-        throw new InvalidArgumentException('Payment attempt not found. Sign in with the account that started checkout.');
-    }
-    if ($payment['status'] === 'SUCCESSFUL') {
-        customerRespond(['payment' => customerPaymentView($payment)]);
-    }
-    if ($payment['status'] === 'FAILED') {
-        customerRespond(['payment' => customerPaymentView($payment)]);
-    }
-    if ($payment['status'] === 'REVIEW') {
-        customerRespond(['payment' => customerPaymentView($payment), 'reviewRequired' => true]);
-    }
-
-    $settings = momoSettings($appConfig);
-    try {
-        $provider = momoPaymentStatus($settings, $payment['reference_id']);
-    } catch (MtnMomoException $error) {
-        error_log('MTN payment status could not be checked; HTTP status ' . $error->httpStatus . '.');
-        customerRespond(['error' => 'MTN payment status is temporarily unavailable. Retry the status check; do not start a second payment.'], 503);
-    }
-    $providerStatus = strtoupper((string)($provider['status'] ?? 'PENDING'));
-    if ($providerStatus === 'FAILED') {
-        $db->prepare('UPDATE momo_payment_transactions SET status = "FAILED", provider_status = ? WHERE payment_id = ?')
-            ->execute([$providerStatus, $paymentId]);
-        $query->execute([$paymentId, $customer['id']]);
-        customerRespond(['payment' => customerPaymentView($query->fetch())]);
-    }
-    if ($providerStatus !== 'SUCCESSFUL') {
-        $db->prepare('UPDATE momo_payment_transactions SET status = "PENDING", provider_status = ? WHERE payment_id = ?')
-            ->execute([mb_substr($providerStatus, 0, 32), $paymentId]);
-        $query->execute([$paymentId, $customer['id']]);
-        customerRespond(['payment' => customerPaymentView($query->fetch())]);
-    }
-
-    $amountMatches = isset($provider['amount']) && is_numeric($provider['amount'])
-        && (int)round((float)$provider['amount']) === (int)$payment['amount_rwf'];
-    $currencyMatches = strtoupper((string)($provider['currency'] ?? '')) === $payment['currency'];
-    $externalIdMatches = hash_equals(customerMomoExternalId($paymentId), (string)($provider['externalId'] ?? ''));
-    if (!$amountMatches || !$currencyMatches || !$externalIdMatches) {
-        $review = $db->prepare(
-            'UPDATE momo_payment_transactions
-             SET status = "REVIEW", provider_status = "SUCCESSFUL_MISMATCH",
-                 provider_amount_rwf = ?, provider_currency = ?, provider_transaction_id = ?
-             WHERE payment_id = ?'
-        );
-        $review->execute([
-            isset($provider['amount']) && is_numeric($provider['amount']) ? (int)round((float)$provider['amount']) : null,
-            isset($provider['currency']) ? strtoupper((string)$provider['currency']) : null,
-            mb_substr((string)($provider['financialTransactionId'] ?? ''), 0, 120),
-            $paymentId,
-        ]);
-        error_log('MTN reported a successful payment that did not match the stored order amount, currency or reference.');
-        customerRespond([
-            'payment' => ['paymentId' => $paymentId, 'status' => 'REVIEW'],
-            'reviewRequired' => true,
-        ]);
-    }
-
-    $orderId = finishCustomerMomoOrder(
-        $db,
-        $paymentId,
-        $providerStatus,
-        $provider
-    );
-    $query->execute([$paymentId, $customer['id']]);
-    customerRespond(['payment' => customerPaymentView($query->fetch()), 'orderId' => $orderId]);
+    customerRespond(['orderId' => $orderId], 201);
 }
 
 requireCustomerLocalRequest();
 try {
-    $appConfig = require __DIR__ . '/config.php';
     $db = openCustomerDatabase();
     if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         $action = $_GET['action'] ?? '';
@@ -591,11 +341,7 @@ try {
                 $food['price'] = (float)$food['price'];
             }
             unset($food);
-            customerRespond([
-                'foods' => $foods,
-                'payment' => ['currency' => 'RWF', 'rwfPerUsd' => (float)($appConfig['momo']['rwf_per_usd'] ?? 1470)],
-                'csrfToken' => $_SESSION['csrf_token'],
-            ]);
+            customerRespond(['foods' => $foods, 'csrfToken' => $_SESSION['csrf_token']]);
         }
         $customer = customerFromSession($db);
         if ($action === 'session') {
@@ -648,11 +394,8 @@ try {
         $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
         customerRespond(['authenticated' => false, 'csrfToken' => $_SESSION['csrf_token']]);
     }
-    if ($action === 'start_payment') {
-        createCustomerPayment($db, $input, $customer, $appConfig);
-    }
-    if ($action === 'check_payment') {
-        checkCustomerPayment($db, $input, $customer, $appConfig);
+    if ($action === 'place_order') {
+        placeCustomerOrder($db, $input, $customer);
     }
     if ($action === 'toggle_favorite') {
         $foodId = (int)($input['foodId'] ?? 0);
@@ -681,9 +424,6 @@ try {
     }
     error_log('Customer ordering database error: ' . $error->getMessage());
     customerRespond(['error' => 'The customer service could not complete this request.'], 500);
-} catch (RuntimeException $error) {
-    error_log('Customer payment request failed: ' . $error->getMessage());
-    customerRespond(['error' => $error->getMessage()], 503);
 } catch (Throwable $error) {
     error_log('Customer ordering error: ' . $error->getMessage());
     customerRespond(['error' => 'The customer service could not complete this request.'], 500);

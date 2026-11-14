@@ -16,10 +16,12 @@ ALTER TABLE orders
   ADD COLUMN IF NOT EXISTS customer_id BIGINT UNSIGNED NULL,
   ADD COLUMN IF NOT EXISTS customer_phone VARCHAR(32) NOT NULL DEFAULT '',
   ADD COLUMN IF NOT EXISTS delivery_address VARCHAR(500) NOT NULL DEFAULT '',
-  ADD COLUMN IF NOT EXISTS delivery_notes VARCHAR(1000) NOT NULL DEFAULT '';
+  ADD COLUMN IF NOT EXISTS delivery_notes VARCHAR(1000) NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS customer_idempotency_key CHAR(36) NULL;
 
 ALTER TABLE orders
   ADD KEY IF NOT EXISTS idx_orders_customer (customer_id, id),
+  ADD UNIQUE KEY IF NOT EXISTS uq_orders_customer_idempotency (customer_id, customer_idempotency_key),
   ADD CONSTRAINT fk_orders_customer FOREIGN KEY (customer_id) REFERENCES customers (id) ON DELETE SET NULL;
 
 ALTER TABLE auth_users

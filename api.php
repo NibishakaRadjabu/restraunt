@@ -517,10 +517,8 @@ function responseData(PDO $db, array $user): array
         ? $db->query(
             'SELECT p.id, p.order_id AS orderId, p.amount, p.payment_method AS method,
                     p.customer_phone AS customerPhone, p.provider_reference AS providerReference,
-                    DATE_FORMAT(p.payment_date, "%Y-%m-%d") AS date,
-                    mt.amount_rwf AS amountRwf, mt.provider_transaction_id AS providerTransactionId
+                    DATE_FORMAT(p.payment_date, "%Y-%m-%d") AS date
              FROM payments p
-             LEFT JOIN momo_payment_transactions mt ON mt.order_id = p.order_id
              ORDER BY p.id'
         )->fetchAll()
         : [];
@@ -530,25 +528,8 @@ function responseData(PDO $db, array $user): array
         $payment['amount'] = (float)$payment['amount'];
         $payment['customerPhone'] = $payment['customerPhone'] === null ? null : (string)$payment['customerPhone'];
         $payment['providerReference'] = $payment['providerReference'] === null ? null : (string)$payment['providerReference'];
-        $payment['amountRwf'] = $payment['amountRwf'] === null ? null : (int)$payment['amountRwf'];
     }
     unset($payment);
-
-    $momoReviews = $role === 'manager'
-        ? $db->query(
-            'SELECT mt.payment_id AS paymentId, c.name AS customer, mt.customer_phone AS phone,
-                    mt.amount_rwf AS amountRwf, mt.currency, mt.provider_status AS providerStatus,
-                    DATE_FORMAT(mt.updated_at, "%Y-%m-%d %H:%i") AS updatedAt
-             FROM momo_payment_transactions mt
-             JOIN customers c ON c.id = mt.customer_id
-             WHERE mt.status = "REVIEW"
-             ORDER BY mt.updated_at DESC'
-        )->fetchAll()
-        : [];
-    foreach ($momoReviews as &$review) {
-        $review['amountRwf'] = (int)$review['amountRwf'];
-    }
-    unset($review);
 
     $staff = in_array($role, ['manager'], true)
         ? $db->query('SELECT id, name, role, phone, salary FROM staff ORDER BY id')->fetchAll()
@@ -591,7 +572,7 @@ function responseData(PDO $db, array $user): array
         }
         unset($user);
     }
-    return compact('foods', 'tables', 'orders', 'payments', 'momoReviews', 'staff', 'inventory', 'purchases', 'users', 'deliveries', 'drivers');
+    return compact('foods', 'tables', 'orders', 'payments', 'staff', 'inventory', 'purchases', 'users', 'deliveries', 'drivers');
 }
 
 function saveFood(PDO $db, array $input): void
